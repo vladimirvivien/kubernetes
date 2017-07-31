@@ -126,12 +126,14 @@ func (v *sioVolume) SetUpAt(dir string, fsGroup *int64) error {
 	}
 	options := []string{}
 	switch {
+	default:
+		options = append(options, "rw")
+	case isROM && !v.source.ReadOnly:
+		options = append(options, "rw")
 	case isROM:
 		options = append(options, "ro")
 	case v.source.ReadOnly:
 		options = append(options, "ro")
-	default:
-		options = append(options, "rw")
 	}
 
 	glog.V(4).Info(log("mounting device  %s -> %s", devicePath, dir))
