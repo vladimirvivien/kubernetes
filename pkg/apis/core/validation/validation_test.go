@@ -1403,12 +1403,12 @@ func TestValidateCSIVolumeSource(t *testing.T) {
 			}
 		}
 	}
+
 	err = utilfeature.DefaultFeatureGate.Set("CSIPersistentVolume=false")
 	if err != nil {
 		t.Errorf("Failed to disable feature gate for CSIPersistentVolumes: %v", err)
 		return
 	}
-
 }
 
 // helper
