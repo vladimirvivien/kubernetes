@@ -1690,7 +1690,6 @@ func TestValidateCSIVolumeSource(t *testing.T) {
 		t.Errorf("Failed to disable feature gate for CSIPersistentVolumes: %v", err)
 		return
 	}
-
 }
 
 // helper
