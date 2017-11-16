@@ -17,6 +17,7 @@ limitations under the License.
 package csi
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -83,22 +84,29 @@ func (c *csiDriverClient) AssertSupportedVersion(ctx grpctx.Context, ver *csipb.
 		return err
 	}
 
+	glog.V(4).Info(log("asserting version supported by driver"))
 	rsp, err := c.idClient.GetSupportedVersions(ctx, &csipb.GetSupportedVersionsRequest{})
 	if err != nil {
 		return err
 	}
+
 	supported := false
 	vers := rsp.GetSupportedVersions()
+	glog.V(4).Info(log("driver reports %d versions supported: %s", len(vers), versToStr(vers)))
+
 	for _, v := range vers {
 		if v.GetMajor() == ver.GetMajor() &&
 			v.GetMinor() == ver.GetMinor() &&
 			v.GetPatch() == ver.GetPatch() {
 			supported = true
+			break
 		}
 	}
+
 	if !supported {
 		return fmt.Errorf("version %d.%d.%d not supported", ver.GetMajor(), ver.GetMinor(), ver.GetPatch())
 	}
+
 	glog.V(4).Infof(log("version %d.%d.%d supported", ver.GetMajor(), ver.GetMinor(), ver.GetPatch()))
 	return nil
 }
@@ -179,4 +187,23 @@ func asCSIAccessMode(am api.PersistentVolumeAccessMode) csipb.VolumeCapability_A
 		return csipb.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER
 	}
 	return csipb.VolumeCapability_AccessMode_UNKNOWN
+}
+
+func verToStr(ver *csipb.Version) string {
+	if ver == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d.%d.%d", ver.GetMajor(), ver.GetMinor(), ver.GetPatch())
+}
+
+func versToStr(vers []*csipb.Version) string {
+	if vers == nil {
+		return ""
+	}
+	str := bytes.NewBufferString("[")
+	for _, v := range vers {
+		str.WriteString(fmt.Sprintf("{%s};", verToStr(v)))
+	}
+	str.WriteString("]")
+	return str.String()
 }
