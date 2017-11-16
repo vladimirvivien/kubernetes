@@ -45,11 +45,16 @@ type csiClient interface {
 
 // csiClient encapsulates all csi-plugin methods
 type csiDriverClient struct {
-	network    string
-	addr       string
-	conn       *grpc.ClientConn
-	idClient   csipb.IdentityClient
-	nodeClient csipb.NodeClient
+	network          string
+	addr             string
+	conn             *grpc.ClientConn
+	idClient         csipb.IdentityClient
+	nodeClient       csipb.NodeClient
+	ctrlClient       csipb.ControllerClient
+	versionAsserted  bool
+	versionSupported bool
+	publishAsserted  bool
+	publishCapable   bool
 }
 
 func newCsiDriverClient(network, addr string) *csiDriverClient {
@@ -73,20 +78,35 @@ func (c *csiDriverClient) assertConnection() error {
 		c.conn = conn
 		c.idClient = csipb.NewIdentityClient(conn)
 		c.nodeClient = csipb.NewNodeClient(conn)
+		c.ctrlClient = csipb.NewControllerClient(conn)
+
+		// set supported version
 	}
 
 	return nil
 }
 
-// AssertCSIVersion determines if driver supports specified version
+// AssertSupportedVersion ensures driver supports specified spec version.
+// If version is not supported, the assertion fails with an error.
+// This test should be done early during the storage operation flow to avoid
+// unnecessary calls later.
 func (c *csiDriverClient) AssertSupportedVersion(ctx grpctx.Context, ver *csipb.Version) error {
+	if c.versionAsserted {
+		if !c.versionSupported {
+			return fmt.Errorf("version %s not supported", verToStr(ver))
+		}
+		return nil
+	}
+
 	if err := c.assertConnection(); err != nil {
+		c.versionAsserted = false
 		return err
 	}
 
 	glog.V(4).Info(log("asserting version supported by driver"))
 	rsp, err := c.idClient.GetSupportedVersions(ctx, &csipb.GetSupportedVersionsRequest{})
 	if err != nil {
+		c.versionAsserted = false
 		return err
 	}
 
@@ -95,19 +115,61 @@ func (c *csiDriverClient) AssertSupportedVersion(ctx grpctx.Context, ver *csipb.
 	glog.V(4).Info(log("driver reports %d versions supported: %s", len(vers), versToStr(vers)))
 
 	for _, v := range vers {
-		if v.GetMajor() == ver.GetMajor() &&
-			v.GetMinor() == ver.GetMinor() &&
-			v.GetPatch() == ver.GetPatch() {
+		if verToStr(v) == verToStr(ver) {
 			supported = true
 			break
 		}
 	}
 
+	c.versionAsserted = true
+	c.versionSupported = supported
+
 	if !supported {
-		return fmt.Errorf("version %d.%d.%d not supported", ver.GetMajor(), ver.GetMinor(), ver.GetPatch())
+		return fmt.Errorf("version %s not supported", verToStr(ver))
 	}
 
-	glog.V(4).Infof(log("version %d.%d.%d supported", ver.GetMajor(), ver.GetMinor(), ver.GetPatch()))
+	glog.V(4).Info(log("version %s supported", verToStr(ver)))
+	return nil
+}
+
+// AssertVolumePublishCapability ensures driver supports volume attachment by
+// looking for ControllerCapability.PUBLISH_UNPUBLISH_VOLUME.
+// Method returns error if assertion fails or driver does not support capability,
+// Assertion test is cached after the first sucessful check.
+func (c *csiDriverClient) AssertVolumePublishCapability(ctx grpctx.Context) error {
+	if c.publishAsserted {
+		if !c.publishCapable {
+			return fmt.Errorf("volume publish not supported by driver")
+		}
+		return nil
+	}
+
+	if err := c.assertConnection(); err != nil {
+		c.publishAsserted = false
+		return err
+	}
+
+	resp, err := c.ctrlClient.ControllerGetCapabilities(ctx, &csipb.ControllerGetCapabilitiesRequest{csiVersion})
+	if err != nil {
+		c.publishAsserted = false
+		return err
+	}
+	capable := false
+	for _, c := range resp.GetCapabilities() {
+		if c.GetRpc().GetType().String() == csipb.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME.String() {
+			capable = true
+			break
+		}
+	}
+
+	c.publishAsserted = true
+	c.publishCapable = capable
+
+	if !c.publishCapable {
+		return fmt.Errorf("volume publish not supported by driver")
+	}
+
+	glog.V(4).Info(log("driver supports volume publish"))
 	return nil
 }
 
@@ -163,7 +225,7 @@ func (c *csiDriverClient) NodeUnpublishVolume(ctx grpctx.Context, volId string, 
 		return errors.New("missing target path")
 	}
 	if err := c.assertConnection(); err != nil {
-		glog.Errorf("%v: failed to assert a connection: %v", csiPluginName, err)
+		glog.Error(log("failed to assert a connection: %v", err))
 		return err
 	}
 

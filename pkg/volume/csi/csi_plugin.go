@@ -97,8 +97,16 @@ func (p *csiPlugin) NewMounter(
 	glog.V(4).Infof(log("setting up mounter for [volume=%v,driver=%v]", pvSource.VolumeHandle, pvSource.Driver))
 	addr := csiAddrTemplate
 	client := newCsiDriverClient("unix", addr)
+
+	k8s := p.host.GetKubeClient()
+	if k8s == nil {
+		glog.Error(log("unable to get kubernetes client from host"))
+		return nil, errors.New("unable to get Kubernetes client")
+	}
+
 	mounter := &csiMountMgr{
 		plugin:     p,
+		k8s:        k8s,
 		spec:       spec,
 		pod:        pod,
 		podUID:     pod.UID,
