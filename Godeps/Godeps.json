@@ -428,10 +428,6 @@
 			"Rev": "8d75e11374a1928608c906fe745b538483e7aeb2"
 		},
 		{
-			"ImportPath": "github.com/container-storage-interface/spec/lib/go/csi",
-			"Rev": "a3814aba5bd0591535ed7aae0fe94d75e80a5d40"
-		},
-		{
 			"ImportPath": "github.com/containernetworking/cni/libcni",
 			"Comment": "v0.6.0",
 			"Rev": "a7885cb6f8ab03fba07852ded351e4f5e7a112bf"
