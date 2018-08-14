@@ -21,21 +21,24 @@ import (
 	"errors"
 	"testing"
 
+	"reflect"
+
 	csipb "github.com/container-storage-interface/spec/lib/go/csi/v0"
 	api "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/volume/csi/fake"
-	"reflect"
 )
 
 type fakeCsiDriverClient struct {
-	t          *testing.T
-	nodeClient *fake.NodeClient
+	t                *testing.T
+	nodeClient       *fake.NodeClient
+	controllerClient *fake.ControllerClient
 }
 
 func newFakeCsiDriverClient(t *testing.T, stagingCapable bool) *fakeCsiDriverClient {
 	return &fakeCsiDriverClient{
-		t:          t,
-		nodeClient: fake.NewNodeClient(stagingCapable),
+		t:                t,
+		nodeClient:       fake.NewNodeClient(stagingCapable),
+		controllerClient: fake.NewControllerClient(),
 	}
 }
 
@@ -145,6 +148,41 @@ func (c *fakeCsiDriverClient) NodeGetCapabilities(ctx context.Context) ([]*csipb
 		return nil, err
 	}
 	return resp.GetCapabilities(), nil
+}
+
+func (c *fakeCsiDriverClient) CreateVolume(
+	ctx context.Context,
+	volHandle string,
+	sizeInBytes int64,
+	cretionSecrets map[string]string,
+) (*csipb.Volume, error) {
+	c.t.Log("calling fake.CreateVolume...")
+
+	volReq := &csipb.CreateVolumeRequest{
+		Name: volHandle,
+		//Parameters: options.Parameters,
+		ControllerCreateSecrets: cretionSecrets,
+		VolumeCapabilities: []*csipb.VolumeCapability{
+			{
+				AccessType: &csipb.VolumeCapability_Mount{
+					Mount: &csipb.VolumeCapability_MountVolume{},
+				},
+				AccessMode: &csipb.VolumeCapability_AccessMode{
+					Mode: csipb.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+				},
+			},
+		},
+		CapacityRange: &csipb.CapacityRange{
+			RequiredBytes: int64(sizeInBytes),
+		},
+	}
+
+	resp, err := c.controllerClient.CreateVolume(ctx, volReq)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.Volume, nil
 }
 
 func setupClient(t *testing.T, stageUnstageSet bool) csiClient {
@@ -335,6 +373,38 @@ func TestClientNodeUnstageVolume(t *testing.T) {
 		)
 		if tc.mustFail && err == nil {
 			t.Error("test must fail, but err is nil")
+		}
+	}
+}
+
+func TestClientCreateVolume(t *testing.T) {
+	testCases := []struct {
+		name      string
+		volHandle string
+		size      int64
+		secrets   map[string]string
+		mustFail  bool
+		err       error
+	}{
+		{name: "test ok", volHandle: "test-handle", size: 1024 * 1000 * 1000},
+		{name: "test with failure", volHandle: "test-handle", size: 0, mustFail: true, err: errors.New("missing size")},
+	}
+
+	client := setupClient(t, false)
+
+	for _, tc := range testCases {
+		t.Logf("Running test case: %s", tc.name)
+		client.(*fakeCsiDriverClient).controllerClient.SetNextError(tc.err)
+		vol, err := client.CreateVolume(context.Background(), tc.volHandle, tc.size, nil)
+
+		if tc.mustFail && err == nil {
+			t.Fatal("test must fail, but err is nil")
+		}
+
+		if vol != nil {
+			if vol.CapacityBytes != tc.size {
+				t.Error("volume capacity not set")
+			}
 		}
 	}
 }

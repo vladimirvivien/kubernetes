@@ -51,11 +51,11 @@ const (
 	// the unix domain socket path for each installed csi driver.
 	// TODO (vladimirvivien) would be nice to name socket with a .sock extension
 	// for consistency.
-	csiAddrTemplate = "/var/lib/kubelet/plugins/%v/csi.sock"
-	csiTimeout      = 15 * time.Second
-	volNameSep      = "^"
-	volDataFileName = "vol_data.json"
-	fsTypeBlockName = "block"
+	csiAddrTemplate   = "/var/lib/kubelet/plugins/%v/csi.sock"
+	csiDefaultTimeout = 15 * time.Second
+	volNameSep        = "^"
+	volDataFileName   = "vol_data.json"
+	fsTypeBlockName   = "block"
 
 	// TODO: increase to something useful
 	csiResyncPeriod = time.Minute
@@ -133,7 +133,7 @@ func (h *RegistrationHandler) RegisterPlugin(pluginName string, endpoint string)
 	// Get node info from the driver.
 	csi := newCsiDriverClient(pluginName)
 	// TODO (verult) retry with exponential backoff, possibly added in csi client library.
-	ctx, cancel := context.WithTimeout(context.Background(), csiTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), csiDefaultTimeout)
 	defer cancel()
 
 	driverNodeID, maxVolumePerNode, accessibleTopology, err := csi.NodeGetInfo(ctx)
@@ -211,14 +211,25 @@ func (p *csiPlugin) NewMounter(
 	spec *volume.Spec,
 	pod *api.Pod,
 	_ volume.VolumeOptions) (volume.Mounter, error) {
-	pvSource, err := getCSISourceFromSpec(spec)
+
+	source, err := getSourceFromSpec(spec)
 	if err != nil {
 		return nil, err
 	}
-	readOnly, err := getReadOnlyFromSpec(spec)
-	if err != nil {
-		return nil, err
+
+	var driver, volHandle string
+
+	if volSource, ok := source.(*api.CSIVolumeSource); ok {
+		driver = volSource.Driver
+		if volSource.VolumeHandle != nil {
+			volHandle = *volSource.VolumeHandle
+		}
+	} else if volSource, ok := source.(*api.CSIPersistentVolumeSource); ok {
+		driver = volSource.Driver
+		volHandle = volSource.VolumeHandle
 	}
+
+	readOnly := spec.ReadOnly
 
 	k8s := p.host.GetKubeClient()
 	if k8s == nil {
@@ -226,7 +237,7 @@ func (p *csiPlugin) NewMounter(
 		return nil, errors.New("failed to get a Kubernetes client")
 	}
 
-	csi := newCsiDriverClient(pvSource.Driver)
+	csi := newCsiDriverClient(driver)
 
 	mounter := &csiMountMgr{
 		plugin:       p,
@@ -234,8 +245,8 @@ func (p *csiPlugin) NewMounter(
 		spec:         spec,
 		pod:          pod,
 		podUID:       pod.UID,
-		driverName:   pvSource.Driver,
-		volumeID:     pvSource.VolumeHandle,
+		driverName:   driver,
+		volumeID:     volHandle,
 		specVolumeID: spec.Name(),
 		csiClient:    csi,
 		readOnly:     readOnly,
@@ -253,11 +264,11 @@ func (p *csiPlugin) NewMounter(
 
 	// persist volume info data for teardown
 	node := string(p.host.GetNodeName())
-	attachID := getAttachmentName(pvSource.VolumeHandle, pvSource.Driver, node)
+	attachID := getAttachmentName(volHandle, driver, node)
 	volData := map[string]string{
 		volDataKey.specVolID:    spec.Name(),
-		volDataKey.volHandle:    pvSource.VolumeHandle,
-		volDataKey.driverName:   pvSource.Driver,
+		volDataKey.volHandle:    volHandle,
+		volDataKey.driverName:   driver,
 		volDataKey.nodeName:     node,
 		volDataKey.attachmentID: attachID,
 	}

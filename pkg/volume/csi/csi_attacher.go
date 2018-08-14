@@ -98,53 +98,80 @@ func (c *csiAttacher) Attach(spec *volume.Spec, nodeName types.NodeName) (string
 		Status: storage.VolumeAttachmentStatus{Attached: false},
 	}
 
-	_, err = c.k8s.StorageV1beta1().VolumeAttachments().Create(attachment)
+	// post attachment object and wait for attachment to be created
+	createdAttchID, err := c.postVolumeAttachment(csiSource.Driver, csiSource.VolumeHandle, attachment, csiDefaultTimeout)
+	if err != nil {
+		glog.Error(log("attacher.Attach failed to post VolumeAttachment: %v", err))
+		return "", err
+	}
+
+	glog.V(4).Info(log("attacher.Attach finished OK with VolumeAttachment object [%s]", createdAttchID))
+
+	return createdAttchID, nil
+}
+
+// postVolumeAttachment posts the VolumeAttachment object to the server and waits for
+// the attachment to be marked attached.
+func (c *csiAttacher) postVolumeAttachment(driverName, volumeHandle string, attachment *storage.VolumeAttachment, attachmentTimeout time.Duration) (string, error) {
+	if attachment == nil {
+		return "", errors.New("VolumeAttachment nil")
+	}
+
+	glog.V(4).Info(log("attacher.postVolumeAttachment posting attachment [driver:%s, volumeHandle: %s, attachID:%s]", driverName, volumeHandle, attachment.Name))
+
+	createdAttachment, err := c.k8s.StorageV1beta1().VolumeAttachments().Create(attachment)
 	alreadyExist := false
 	if err != nil {
 		if !apierrs.IsAlreadyExists(err) {
-			glog.Error(log("attacher.Attach failed: %v", err))
+			glog.Error(log("attacher.postVolumeAttachment VolumeAttachments().Create() failed: %v", err))
 			return "", err
 		}
 		alreadyExist = true
 	}
 
 	if alreadyExist {
-		glog.V(4).Info(log("attachment [%v] for volume [%v] already exists (will not be recreated)", attachID, csiSource.VolumeHandle))
+		glog.V(4).Info(log("attachment [%v] for volume [%v] already exists (will not be recreated)", createdAttachment.Name, volumeHandle))
 	} else {
-		glog.V(4).Info(log("attachment [%v] for volume [%v] created successfully", attachID, csiSource.VolumeHandle))
+		glog.V(4).Info(log("attachment [%v] for volume [%v] created successfully", createdAttachment.Name, volumeHandle))
 	}
 
-	if _, err := c.waitForVolumeAttachment(csiSource.VolumeHandle, attachID, csiTimeout); err != nil {
+	attachID, err := c.waitForVolumeAttachment(driverName, volumeHandle, createdAttachment.Name, attachmentTimeout)
+	if err != nil {
+		glog.Error(log("attacher.postVolumeAttachment failed: %v", err))
 		return "", err
 	}
-
-	glog.V(4).Info(log("attacher.Attach finished OK with VolumeAttachment object [%s]", attachID))
 
 	return attachID, nil
 }
 
 func (c *csiAttacher) WaitForAttach(spec *volume.Spec, attachID string, pod *v1.Pod, timeout time.Duration) (string, error) {
-	source, err := getCSISourceFromSpec(spec)
+	glog.V(4).Info(log("attacher.WaitForAttach called [attachment.ID=%v]", attachID))
+	if spec == nil {
+		glog.Error(log("attacher.WaitForAttach missing volume.Spec"))
+		return "", errors.New("missing spec")
+	}
+
+	csiSource, err := getCSISourceFromSpec(spec)
 	if err != nil {
-		glog.Error(log("attacher.WaitForAttach failed to extract CSI volume source: %v", err))
+		glog.Error(log("attacher.WaitForAttach failed to get CSI persistent source: %v", err))
 		return "", err
 	}
 
-	skip, err := c.plugin.skipAttach(source.Driver)
+	return c.waitForVolumeAttachment(csiSource.Driver, csiSource.VolumeHandle, attachID, timeout)
+}
+
+func (c *csiAttacher) waitForVolumeAttachment(driverName, volumeHandle, attachID string, timeout time.Duration) (string, error) {
+	glog.V(4).Info(log("attacher.waitForVolumeAttachment waiting for attached status [attachment.ID=%v]", attachID))
+
+	skip, err := c.plugin.skipAttach(driverName)
 	if err != nil {
-		glog.Error(log("attacher.Attach failed to find if driver is attachable: %v", err))
+		glog.Error(log("attacher.waitForVolumeAttachment failed to determine if driver is attachable: %v", err))
 		return "", err
 	}
 	if skip {
 		glog.V(4).Infof(log("Driver is not attachable, skip waiting for attach"))
 		return "", nil
 	}
-
-	return c.waitForVolumeAttachment(source.VolumeHandle, attachID, timeout)
-}
-
-func (c *csiAttacher) waitForVolumeAttachment(volumeHandle, attachID string, timeout time.Duration) (string, error) {
-	glog.V(4).Info(log("probing for updates from CSI driver for [attachment.ID=%v]", attachID))
 
 	timer := time.NewTimer(timeout) // TODO (vladimirvivien) investigate making this configurable
 	defer timer.Stop()
@@ -344,7 +371,7 @@ func (c *csiAttacher) MountDevice(spec *volume.Spec, devicePath string, deviceMo
 	}
 	csi := c.csiClient
 
-	ctx, cancel := context.WithTimeout(context.Background(), csiTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), csiDefaultTimeout)
 	defer cancel()
 	// Check whether "STAGE_UNSTAGE_VOLUME" is set
 	stageUnstageSet, err := hasStageUnstageCapability(ctx, csi)
@@ -524,7 +551,7 @@ func (c *csiAttacher) UnmountDevice(deviceMountPath string) error {
 	}
 	csi := c.csiClient
 
-	ctx, cancel := context.WithTimeout(context.Background(), csiTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), csiDefaultTimeout)
 	defer cancel()
 	// Check whether "STAGE_UNSTAGE_VOLUME" is set
 	stageUnstageSet, err := hasStageUnstageCapability(ctx, csi)
@@ -587,15 +614,15 @@ func getAttachmentName(volName, csiDriverName, nodeName string) string {
 
 func makeDeviceMountPath(plugin *csiPlugin, spec *volume.Spec) (string, error) {
 	if spec == nil {
-		return "", fmt.Errorf("makeDeviceMountPath failed, spec is nil")
+		return "", fmt.Errorf("spec is nil")
 	}
 
-	pvName := spec.PersistentVolume.Name
-	if pvName == "" {
-		return "", fmt.Errorf("makeDeviceMountPath failed, pv name empty")
+	specName := spec.Name()
+	if specName == "" {
+		return "", fmt.Errorf("spec volume name empty")
 	}
 
-	return path.Join(plugin.host.GetPluginDir(plugin.GetPluginName()), persistentVolumeInGlobalPath, pvName, globalMountInGlobalPath), nil
+	return path.Join(plugin.host.GetPluginDir(plugin.GetPluginName()), persistentVolumeInGlobalPath, specName, globalMountInGlobalPath), nil
 }
 
 func getDriverAndVolNameFromDeviceMountPath(k8s kubernetes.Interface, deviceMountPath string) (string, string, error) {
