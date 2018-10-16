@@ -46,6 +46,7 @@ go_test(
         "csi_attacher_test.go",
         "csi_block_test.go",
         "csi_client_test.go",
+        "csi_mounter_inline_test.go",
         "csi_mounter_test.go",
         "csi_plugin_test.go",
     ],
