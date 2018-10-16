@@ -17,6 +17,7 @@ package csi
 
 import (
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -219,32 +220,75 @@ func TestInlineSetUp(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		vol        *api.Volume
+		volSpec    *volume.Spec
+		volAttribs map[string]string
 		shouldFail bool
 	}{
 		{
-			name: "dynamic provision - missing volHandle",
-			vol: &api.Volume{
-				Name: testVol,
-				VolumeSource: api.VolumeSource{
-					CSI: &api.CSIVolumeSource{
-						Driver:   testDriver,
-						ReadOnly: &readOnly,
+			name: "inline - dynamic provision with missing volHandle",
+			volSpec: &volume.Spec{
+				Volume: &api.Volume{
+					Name: testVol,
+					VolumeSource: api.VolumeSource{
+						CSI: &api.CSIVolumeSource{
+							Driver:   testDriver,
+							ReadOnly: &readOnly,
+						},
+					},
+				},
+			},
+		},
+
+		{
+			name:       "inline - dynamic provision with volume attribs",
+			volAttribs: map[string]string{"foo0": "bar0", "foo1": "bar1"},
+			volSpec: &volume.Spec{
+				Volume: &api.Volume{
+					Name: testVol,
+					VolumeSource: api.VolumeSource{
+						CSI: &api.CSIVolumeSource{
+							Driver:   testDriver,
+							ReadOnly: &readOnly,
+						},
 					},
 				},
 			},
 		},
 		{
-			name: "Source with volumeHandle",
-			vol: &api.Volume{
-				Name: testVol,
-				VolumeSource: api.VolumeSource{
-					CSI: &api.CSIVolumeSource{
-						Driver:       testDriver,
-						VolumeHandle: &volHandle,
-						ReadOnly:     &readOnly,
+			name:       "inline - dynamic provision with secrets",
+			volAttribs: map[string]string{"foo0": "bar0", "foo1": "bar1"},
+			volSpec: &volume.Spec{
+				Volume: &api.Volume{
+					Name: testVol,
+					VolumeSource: api.VolumeSource{
+						CSI: &api.CSIVolumeSource{
+							Driver:               testDriver,
+							ReadOnly:             &readOnly,
+							NodePublishSecretRef: &api.LocalObjectReference{Name: "test-secret"},
+						},
 					},
 				},
+			},
+		},
+		{
+			name: "inline - pre-provisioned with volHandle",
+			volSpec: &volume.Spec{
+				Volume: &api.Volume{
+					Name: testVol,
+					VolumeSource: api.VolumeSource{
+						CSI: &api.CSIVolumeSource{
+							Driver:       testDriver,
+							VolumeHandle: &volHandle,
+							ReadOnly:     &readOnly,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "pvc test - normal",
+			volSpec: &volume.Spec{
+				PersistentVolume: makeTestPV("test-pv", 5, testDriver, volHandle),
 			},
 		},
 	}
@@ -256,9 +300,8 @@ func TestInlineSetUp(t *testing.T) {
 			defer os.RemoveAll(tmpDir)
 
 			t.Logf("running test: %s", tc.name)
-			volSpec := &volume.Spec{Volume: tc.vol}
 			mounter, err := plug.NewMounter(
-				volSpec,
+				tc.volSpec,
 				&api.Pod{ObjectMeta: meta.ObjectMeta{UID: testPodUID, Namespace: testns}},
 				volume.VolumeOptions{},
 			)
@@ -274,44 +317,108 @@ func TestInlineSetUp(t *testing.T) {
 			csiMounter := mounter.(*csiMountMgr)
 			csiMounter.csiClient = setupClient(t, true)
 			k8sClient := csiMounter.k8s
+			csiInlineUsed := false
 
-			go func() {
-				var attachment *storage.VolumeAttachment
-				ticker := time.NewTicker(10 * time.Millisecond)
-				defer ticker.Stop()
-				// wait for an attachment to show up
-				for i := 0; i < 100; i++ {
-					l, err := k8sClient.StorageV1beta1().VolumeAttachments().List(meta.ListOptions{})
+			// Resolve info based on volume spec passed (CSIVolume or CSIPersistentVolume)
+			if tc.volSpec.Volume != nil {
+				csiInlineUsed = true
+				tc.volSpec.Volume.CSI.VolumeAttributes = tc.volAttribs
+				go func() {
+					// setup a secret if necessary
+					if tc.volSpec.Volume.CSI.NodePublishSecretRef != nil {
+						secretName := tc.volSpec.Volume.CSI.NodePublishSecretRef.Name
+						if _, err := k8sClient.CoreV1().Secrets(testns).Create(&api.Secret{
+							ObjectMeta: meta.ObjectMeta{
+								Namespace: testns,
+								Name:      secretName,
+							},
+							StringData: map[string]string{"sec0": "val0"},
+						}); err != nil {
+							t.Error(err)
+						}
+					}
+					var attachment *storage.VolumeAttachment
+					ticker := time.NewTicker(10 * time.Millisecond)
+					defer ticker.Stop()
+					// wait for an attachment to show up
+					for i := 0; i < 100; i++ {
+						l, err := k8sClient.StorageV1beta1().VolumeAttachments().List(meta.ListOptions{})
+						if err != nil {
+							t.Error(err)
+							break
+						}
+						if len(l.Items) > 0 {
+							attachment = &l.Items[0]
+							t.Logf("go an attachment from list [ID: %s]", attachment.Name)
+							break
+						} else {
+							<-ticker.C
+						}
+					}
+					if attachment != nil {
+						t.Logf("updating attachment to attached=true [ID: %s]", attachment.Name)
+						attachment.Status.Attached = true
+						_, err := k8sClient.StorageV1beta1().VolumeAttachments().Update(attachment)
+						if err != nil {
+							t.Error(err)
+						}
+					}
+				}()
+			} else if tc.volSpec.PersistentVolume != nil {
+				csiInlineUsed = false
+				tc.volSpec.PersistentVolume.Spec.CSI.VolumeAttributes = tc.volAttribs
+				go func() {
+					// setup secret if needed
+					if tc.volSpec.PersistentVolume.Spec.CSI.NodePublishSecretRef != nil {
+						secretRef := tc.volSpec.PersistentVolume.Spec.CSI.NodePublishSecretRef
+						if _, err := k8sClient.CoreV1().Secrets(secretRef.Namespace).Create(&api.Secret{
+							ObjectMeta: meta.ObjectMeta{
+								Namespace: secretRef.Namespace,
+								Name:      secretRef.Name,
+							},
+							StringData: map[string]string{"sec0": "val0"},
+						}); err != nil {
+							t.Error(err)
+						}
+					}
+
+					// wait for attachment
+					attachID := getAttachmentName(csiMounter.volumeID, csiMounter.driverName, string(plug.host.GetNodeName()))
+					attachment := makeTestAttachment(attachID, string(plug.host.GetNodeName()), tc.volSpec.PersistentVolume.Name)
+					_, err = csiMounter.k8s.StorageV1beta1().VolumeAttachments().Create(attachment)
 					if err != nil {
-						t.Error(err)
-						break
+						t.Fatalf("failed to create VolumeAttachment: %v", err)
 					}
-					if len(l.Items) > 0 {
-						attachment = &l.Items[0]
-						t.Logf("go an attachment from list [ID: %s]", attachment.Name)
-						break
-					} else {
-						<-ticker.C
-					}
-				}
-				if attachment != nil {
-					t.Logf("updating attachment to attached=true [ID: %s]", attachment.Name)
-					attachment.Status.Attached = true
-					_, err := k8sClient.StorageV1beta1().VolumeAttachments().Update(attachment)
-					if err != nil {
-						t.Error(err)
-					}
-				}
-			}()
+				}()
+			} else {
+				t.Error("missing volume.Spec")
+			}
 
 			if err := csiMounter.SetUp(nil); err != nil {
-				t.Fatalf("mounter.Setup failed: %v", err)
+				t.Errorf("mounter.Setup failed: %v", err)
 			}
 			if err != nil && !tc.shouldFail {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if err == nil && tc.shouldFail {
 				t.Fatalf("expecting error, but got err == nil")
+			}
+			if tc.volAttribs != nil && reflect.DeepEqual(tc.volAttribs, csiMounter.volumeInfo) {
+				t.Errorf("Volume attributes not passed to VolumeAttachment. Expecting %#v, got %#v", tc.volAttribs, csiMounter.volumeInfo)
+			}
+			pubs := csiMounter.csiClient.(*fakeCsiDriverClient).nodeClient.GetNodePublishedVolumes()
+			vol, ok := pubs[csiMounter.volumeID]
+			if !ok {
+				t.Error("csi server may not have received NodePublishVolume call")
+			}
+			if csiInlineUsed {
+				if tc.volSpec.Volume.CSI.NodePublishSecretRef != nil && vol.NodePublishSecrets == nil {
+					t.Error("inline NodePublishSecretRef provided, but secrets not sent to driver")
+				}
+			} else {
+				if tc.volSpec.PersistentVolume.Spec.CSI.NodePublishSecretRef != nil && vol.NodePublishSecrets == nil {
+					t.Error("CSI PV NodePublishSecretRef provided, but secrets not sent to driver")
+				}
 			}
 		})
 	}

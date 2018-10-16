@@ -74,6 +74,7 @@ func (c *csiMountMgr) setUpInline(csiSource *api.CSIVolumeSource) (string, strin
 		}
 		handle := vol.Id
 		volHandle = &handle
+		c.volumeID = vol.Id
 	}
 
 	// trigger attachment and wait for attached

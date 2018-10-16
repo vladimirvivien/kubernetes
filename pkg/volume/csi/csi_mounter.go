@@ -152,11 +152,12 @@ func (c *csiMountMgr) SetUpAt(dir string, fsGroup *int64) error {
 	var volSource *api.CSIVolumeSource
 
 	// if source is an inline CSIVolumeSource:
-	// - if needed, provision
-	// - then attach
-	// - then continue below for remaining mount steps
+	//   - if needed, provision
+	//   - then attach
+	//   - then continue below for remaining mount steps
+	// else check for SetUp of normal CSIPersistentVolumeSource
 	if inlineSource, ok := source.(*api.CSIVolumeSource); ok {
-		glog.V(4).Info(log("mounter.SetUpAt inline processing CSIVolumeSource"))
+		glog.V(4).Info(log("mounter.SetUpAt inline from CSIVolumeSource"))
 		volSource = inlineSource
 
 		attachID, volHandle, err := c.setUpInline(volSource)
@@ -173,7 +174,7 @@ func (c *csiMountMgr) SetUpAt(dir string, fsGroup *int64) error {
 			return ""
 		}()
 		volAttribs = volSource.VolumeAttributes
-
+		glog.V(4).Info(log("mounter.SetUpAt getting PublishVolumeInfo"))
 		volumeInfo, err = c.plugin.getPublishVolumeInfo(c.k8s, volumeHandle, driverName, nodeName)
 		if err != nil {
 			glog.V(4).Info(log("mounter.SetUpAt failed to get VolumeInfo: %v", err))
@@ -198,13 +199,12 @@ func (c *csiMountMgr) SetUpAt(dir string, fsGroup *int64) error {
 		volAttribs = csiSource.VolumeAttributes
 
 		// search for attachment by VolumeAttachment.Spec.Source.PersistentVolumeName
-		if c.volumeInfo == nil {
-			c.volumeInfo, err = c.plugin.getPublishVolumeInfo(c.k8s, volumeHandle, driverName, nodeName)
-			if err != nil {
-				return err
-			}
-			volumeInfo = c.volumeInfo
+		glog.V(4).Info(log("mounter.SetUpAt getting PublishVolumeInfo"))
+		c.volumeInfo, err = c.plugin.getPublishVolumeInfo(c.k8s, volumeHandle, driverName, nodeName)
+		if err != nil {
+			return err
 		}
+		volumeInfo = c.volumeInfo
 
 		if csiSource.NodePublishSecretRef != nil {
 			nodePublishSecrets, err = getCredentialsFromSecret(c.k8s, csiSource.NodePublishSecretRef)

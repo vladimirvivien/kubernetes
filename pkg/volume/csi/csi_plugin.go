@@ -554,15 +554,17 @@ func (p *csiPlugin) skipAttach(driver string) (bool, error) {
 }
 
 func (p *csiPlugin) getPublishVolumeInfo(client clientset.Interface, handle, driver, nodeName string) (map[string]string, error) {
+	attachID := getAttachmentName(handle, driver, nodeName)
+	glog.V(4).Info(log("csiPlugin.getPublishVolumeInfo [attachID:%s", attachID))
+
 	skip, err := p.skipAttach(driver)
 	if err != nil {
 		return nil, err
 	}
 	if skip {
+		glog.V(4).Info(log("driver %s does not support attachment, skipping PublishVolumeInfo", driver))
 		return nil, nil
 	}
-
-	attachID := getAttachmentName(handle, driver, nodeName)
 
 	// search for attachment by VolumeAttachment.Spec.Source.PersistentVolumeName
 	attachment, err := client.StorageV1beta1().VolumeAttachments().Get(attachID, meta.GetOptions{})
