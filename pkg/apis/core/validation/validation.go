@@ -1516,10 +1516,6 @@ func validateCSIVolumeSource(csi *core.CSIVolumeSource, fldPath *field.Path) fie
 		}
 	}
 
-	if csi.VolumeHandle == nil {
-		allErrs = append(allErrs, field.Required(fldPath.Child("volumeHandle"), ""))
-	}
-
 	if csi.ControllerPublishSecretRef != nil {
 		if len(csi.ControllerPublishSecretRef.Name) == 0 {
 			allErrs = append(allErrs, field.Required(fldPath.Child("controllerPublishSecretRef", "name"), ""))
