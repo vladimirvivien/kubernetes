@@ -60,6 +60,7 @@ func (c *csiMountMgr) setUpInline(csiSource *api.CSIVolumeSource) (string, strin
 	}
 
 	var (
+		driverName  = c.driverName
 		volSpecName = c.spec.Name()
 		namespace   = c.pod.Namespace
 		volHandle   = csiSource.VolumeHandle
@@ -67,7 +68,7 @@ func (c *csiMountMgr) setUpInline(csiSource *api.CSIVolumeSource) (string, strin
 
 	// missing volHandle means we should provision
 	if volHandle == nil {
-		glog.V(4).Info(log("mounter.setupInline No CSIVolumeSource.VolumeHandle provided, will attempt to provision new volume"))
+		glog.V(4).Info(log("mounter.setupInline No CSIVolumeSource.VolumeHandle provided, attempting to provision new volume"))
 		vol, err := c.inlineProvision(volSpecName, namespace, c.spec.Volume)
 		if err != nil {
 			return "", "", err
@@ -77,7 +78,18 @@ func (c *csiMountMgr) setUpInline(csiSource *api.CSIVolumeSource) (string, strin
 		c.volumeID = vol.Id
 	}
 
-	// trigger attachment and wait for attached
+	skip, err := c.plugin.skipAttach(driverName)
+	if err != nil {
+		glog.Error(log("mounter.setupInline failed to get attachability setting for driver: %v", err))
+		return "", "", err
+	}
+
+	// trigger attachment and wait for attach.Name (if necessary)
+	if skip {
+		glog.V(4).Info(log("mounter.setupInline skipping volume attachment"))
+		return "", *volHandle, nil
+	}
+
 	attachID, err := c.inlineAttach(*volHandle, csiSource, csiDefaultTimeout)
 	if err != nil {
 		return "", "", err
