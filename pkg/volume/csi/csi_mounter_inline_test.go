@@ -239,7 +239,6 @@ func TestInlineSetUp(t *testing.T) {
 				},
 			},
 		},
-
 		{
 			name:       "inline - dynamic provision with volume attribs",
 			volAttribs: map[string]string{"foo0": "bar0", "foo1": "bar1"},
@@ -324,20 +323,21 @@ func TestInlineSetUp(t *testing.T) {
 			if tc.volSpec.Volume != nil {
 				csiInlineUsed = true
 				tc.volSpec.Volume.CSI.VolumeAttributes = tc.volAttribs
-				go func() {
-					// setup a secret if necessary
-					if tc.volSpec.Volume.CSI.NodePublishSecretRef != nil {
-						secretName := tc.volSpec.Volume.CSI.NodePublishSecretRef.Name
-						if _, err := k8sClient.CoreV1().Secrets(testns).Create(&api.Secret{
-							ObjectMeta: meta.ObjectMeta{
-								Namespace: testns,
-								Name:      secretName,
-							},
-							StringData: map[string]string{"sec0": "val0"},
-						}); err != nil {
-							t.Error(err)
-						}
+				// setup a secret if necessary
+				if tc.volSpec.Volume.CSI.NodePublishSecretRef != nil {
+					secretName := tc.volSpec.Volume.CSI.NodePublishSecretRef.Name
+					if _, err := k8sClient.CoreV1().Secrets(testns).Create(&api.Secret{
+						ObjectMeta: meta.ObjectMeta{
+							Namespace: testns,
+							Name:      secretName,
+						},
+						StringData: map[string]string{"sec0": "val0"},
+					}); err != nil {
+						t.Error(err)
 					}
+				}
+
+				go func() {
 					var attachment *storage.VolumeAttachment
 					ticker := time.NewTicker(10 * time.Millisecond)
 					defer ticker.Stop()
@@ -368,24 +368,25 @@ func TestInlineSetUp(t *testing.T) {
 			} else if tc.volSpec.PersistentVolume != nil {
 				csiInlineUsed = false
 				tc.volSpec.PersistentVolume.Spec.CSI.VolumeAttributes = tc.volAttribs
-				go func() {
-					// setup secret if needed
-					if tc.volSpec.PersistentVolume.Spec.CSI.NodePublishSecretRef != nil {
-						secretRef := tc.volSpec.PersistentVolume.Spec.CSI.NodePublishSecretRef
-						if _, err := k8sClient.CoreV1().Secrets(secretRef.Namespace).Create(&api.Secret{
-							ObjectMeta: meta.ObjectMeta{
-								Namespace: secretRef.Namespace,
-								Name:      secretRef.Name,
-							},
-							StringData: map[string]string{"sec0": "val0"},
-						}); err != nil {
-							t.Error(err)
-						}
+				// setup secret if needed
+				if tc.volSpec.PersistentVolume.Spec.CSI.NodePublishSecretRef != nil {
+					secretRef := tc.volSpec.PersistentVolume.Spec.CSI.NodePublishSecretRef
+					if _, err := k8sClient.CoreV1().Secrets(secretRef.Namespace).Create(&api.Secret{
+						ObjectMeta: meta.ObjectMeta{
+							Namespace: secretRef.Namespace,
+							Name:      secretRef.Name,
+						},
+						StringData: map[string]string{"sec0": "val0"},
+					}); err != nil {
+						t.Error(err)
 					}
+				}
 
+				go func() {
 					// wait for attachment
 					attachID := getAttachmentName(csiMounter.volumeID, csiMounter.driverName, string(plug.host.GetNodeName()))
 					attachment := makeTestAttachment(attachID, string(plug.host.GetNodeName()), tc.volSpec.PersistentVolume.Name)
+					attachment.Status.Attached = true
 					_, err = csiMounter.k8s.StorageV1beta1().VolumeAttachments().Create(attachment)
 					if err != nil {
 						t.Fatalf("failed to create VolumeAttachment: %v", err)

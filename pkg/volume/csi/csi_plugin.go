@@ -200,7 +200,12 @@ func (p *csiPlugin) GetVolumeName(spec *volume.Spec) (string, error) {
 func (p *csiPlugin) CanSupport(spec *volume.Spec) bool {
 	// TODO (vladimirvivien) CanSupport should also take into account
 	// the availability/registration of specified Driver in the volume source
-	return spec.PersistentVolume != nil && spec.PersistentVolume.Spec.CSI != nil
+	if utilfeature.DefaultFeatureGate.Enabled(features.CSIInlineVolume) {
+		return (spec.PersistentVolume != nil && spec.PersistentVolume.Spec.CSI != nil) ||
+			(spec.Volume != nil && spec.Volume.CSI != nil)
+	}
+
+	return (spec.PersistentVolume != nil && spec.PersistentVolume.Spec.CSI != nil)
 }
 
 func (p *csiPlugin) RequiresRemount() bool {
