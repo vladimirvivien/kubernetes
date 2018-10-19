@@ -307,3 +307,7 @@ func (detacher *photonPersistentDiskDetacher) WaitForDetach(devicePath string, t
 func (detacher *photonPersistentDiskDetacher) UnmountDevice(deviceMountPath string) error {
 	return volumeutil.UnmountPath(deviceMountPath, detacher.mounter)
 }
+
+func (plugin *photonPersistentDiskPlugin) CanAttach(spec *volume.Spec) bool {
+	return true
+}

@@ -276,6 +276,10 @@ func (detacher *awsElasticBlockStoreDetacher) UnmountDevice(deviceMountPath stri
 	return volumeutil.UnmountPath(deviceMountPath, detacher.mounter)
 }
 
+func (plugin *awsElasticBlockStorePlugin) CanAttach(spec *volume.Spec) bool {
+	return true
+}
+
 func setNodeDisk(
 	nodeDiskMap map[types.NodeName]map[*volume.Spec]bool,
 	volumeSpec *volume.Spec,

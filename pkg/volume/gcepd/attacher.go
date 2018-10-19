@@ -287,3 +287,7 @@ func (detacher *gcePersistentDiskDetacher) Detach(volumeName string, nodeName ty
 func (detacher *gcePersistentDiskDetacher) UnmountDevice(deviceMountPath string) error {
 	return volumeutil.UnmountPath(deviceMountPath, detacher.host.GetMounter(gcePersistentDiskPluginName))
 }
+
+func (plugin *gcePersistentDiskPlugin) CanAttach(spec *volume.Spec) bool {
+	return true
+}

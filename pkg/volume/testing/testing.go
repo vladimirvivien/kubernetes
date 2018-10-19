@@ -431,6 +431,10 @@ func (plugin *FakeVolumePlugin) GetNewDetacherCallCount() int {
 	return plugin.NewDetacherCallCount
 }
 
+func (plugin *FakeVolumePlugin) CanAttach(spec *Spec) bool {
+	return true
+}
+
 func (plugin *FakeVolumePlugin) Recycle(pvName string, spec *Spec, eventRecorder recyclerclient.RecycleEventRecorder) error {
 	return nil
 }

@@ -377,6 +377,10 @@ func (p *csiPlugin) NewDetacher() (volume.Detacher, error) {
 	}, nil
 }
 
+func (p *csiPlugin) CanAttach(spec *volume.Spec) bool {
+	return spec != nil && spec.PersistentVolume != nil && spec.Volume == nil
+}
+
 func (p *csiPlugin) NewDeviceUnmounter() (volume.DeviceUnmounter, error) {
 	return p.NewDetacher()
 }
