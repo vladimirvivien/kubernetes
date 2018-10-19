@@ -187,6 +187,28 @@ func (p *csiPlugin) GetPluginName() string {
 // GetvolumeName returns a concatenated string of CSIVolumeSource.Driver<volNameSe>CSIVolumeSource.VolumeHandle
 // That string value is used in Detach() to extract driver name and volumeName.
 func (p *csiPlugin) GetVolumeName(spec *volume.Spec) (string, error) {
+	if utilfeature.DefaultFeatureGate.Enabled(features.CSIInlineVolume) {
+		var driver, handle string
+		source, err := getSourceFromSpec(spec)
+		if err != nil {
+			glog.Error(log("plugin.GetVolumeName failed to get CSI source from spec: %v", err))
+			return "", err
+		}
+		if inlineSource, ok := source.(*api.CSIVolumeSource); ok {
+			driver = inlineSource.Driver
+			handle = func() string {
+				if inlineSource.VolumeHandle != nil {
+					return *inlineSource.VolumeHandle
+				}
+				return ""
+			}()
+		} else if pvSource, ok := source.(*api.CSIPersistentVolumeSource); ok {
+			driver = pvSource.Driver
+			handle = pvSource.VolumeHandle
+		}
+		return fmt.Sprintf("%s%s%s", driver, volNameSep, handle), nil
+	}
+
 	csi, err := getCSISourceFromSpec(spec)
 	if err != nil {
 		glog.Error(log("plugin.GetVolumeName failed to extract volume source from spec: %v", err))
