@@ -52,30 +52,35 @@ const (
 	// the unix domain socket path for each installed csi driver.
 	// TODO (vladimirvivien) would be nice to name socket with a .sock extension
 	// for consistency.
-	csiAddrTemplate = "/var/lib/kubelet/plugins/%v/csi.sock"
-	csiTimeout      = 15 * time.Second
-	volNameSep      = "^"
-	volDataFileName = "vol_data.json"
-	fsTypeBlockName = "block"
+	csiAddrTemplate   = "/var/lib/kubelet/plugins/%v/csi.sock"
+	csiDefaultTimeout = 15 * time.Second
+	volNameSep        = "^"
+	volDataFileName   = "vol_data.json"
+	fsTypeBlockName   = "block"
 
 	// TODO: increase to something useful
 	csiResyncPeriod = time.Minute
+
+	volumeKind           = "Volume"
+	persistentVolumeKind = "PersistentVolume"
 )
 
 var deprecatedSocketDirVersions = []string{"0.1.0", "0.2.0", "0.3.0", "0.4.0"}
 
 type csiPlugin struct {
-	host              volume.VolumeHost
-	blockEnabled      bool
-	csiDriverLister   csilister.CSIDriverLister
-	csiDriverInformer csiinformer.CSIDriverInformer
+	host                 volume.VolumeHost
+	blockEnabled         bool
+	inlineFeatureEnabled bool
+	csiDriverLister      csilister.CSIDriverLister
+	csiDriverInformer    csiinformer.CSIDriverInformer
 }
 
 // ProbeVolumePlugins returns implemented plugins
 func ProbeVolumePlugins() []volume.VolumePlugin {
 	p := &csiPlugin{
-		host:         nil,
-		blockEnabled: utilfeature.DefaultFeatureGate.Enabled(features.CSIBlockVolume),
+		host:                 nil,
+		blockEnabled:         utilfeature.DefaultFeatureGate.Enabled(features.CSIBlockVolume),
+		inlineFeatureEnabled: utilfeature.DefaultFeatureGate.Enabled(features.CSIInlineVolume),
 	}
 	return []volume.VolumePlugin{p}
 }
@@ -236,20 +241,37 @@ func (p *csiPlugin) GetPluginName() string {
 // GetvolumeName returns a concatenated string of CSIVolumeSource.Driver<volNameSe>CSIVolumeSource.VolumeHandle
 // That string value is used in Detach() to extract driver name and volumeName.
 func (p *csiPlugin) GetVolumeName(spec *volume.Spec) (string, error) {
-	csi, err := getCSISourceFromSpec(spec)
+	var driver, handle string
+	volSource, pvSource, err := getSourceFromSpec(spec)
 	if err != nil {
 		klog.Error(log("plugin.GetVolumeName failed to extract volume source from spec: %v", err))
 		return "", err
 	}
+	if volSource != nil && p.inlineFeatureEnabled {
+		driver = volSource.Driver
+		if volSource.VolumeHandle != nil {
+			handle = *volSource.VolumeHandle
+		}
+	} else if pvSource != nil {
+		driver = pvSource.Driver
+		handle = pvSource.VolumeHandle
+	} else {
+		return "", errors.New("spec missing CSI volume source")
+	}
 
 	// return driverName<separator>volumeHandle
-	return fmt.Sprintf("%s%s%s", csi.Driver, volNameSep, csi.VolumeHandle), nil
+	return fmt.Sprintf("%s%s%s", driver, volNameSep, handle), nil
 }
 
 func (p *csiPlugin) CanSupport(spec *volume.Spec) bool {
 	// TODO (vladimirvivien) CanSupport should also take into account
 	// the availability/registration of specified Driver in the volume source
-	return spec.PersistentVolume != nil && spec.PersistentVolume.Spec.CSI != nil
+	if p.inlineFeatureEnabled {
+		return (spec.PersistentVolume != nil && spec.PersistentVolume.Spec.CSI != nil) ||
+			(spec.Volume != nil && spec.Volume.CSI != nil)
+	}
+
+	return (spec.PersistentVolume != nil && spec.PersistentVolume.Spec.CSI != nil)
 }
 
 func (p *csiPlugin) IsMigratedToCSI() bool {
@@ -264,14 +286,35 @@ func (p *csiPlugin) NewMounter(
 	spec *volume.Spec,
 	pod *api.Pod,
 	_ volume.VolumeOptions) (volume.Mounter, error) {
-	pvSource, err := getCSISourceFromSpec(spec)
+
+	volSource, pvSource, err := getSourceFromSpec(spec)
 	if err != nil {
 		return nil, err
 	}
-	readOnly, err := getReadOnlyFromSpec(spec)
-	if err != nil {
-		return nil, err
+
+	var (
+		driver     string
+		volHandle  string
+		sourceKind string
+	)
+
+	if volSource != nil && p.inlineFeatureEnabled {
+		driver = volSource.Driver
+		if volSource.VolumeHandle != nil {
+			volHandle = *volSource.VolumeHandle
+		}
+		sourceKind = volumeKind
+	} else if pvSource != nil {
+		driver = pvSource.Driver
+		volHandle = pvSource.VolumeHandle
+		if p.inlineFeatureEnabled {
+			sourceKind = persistentVolumeKind
+		}
+	} else {
+		return nil, errors.New("spec missing CSI volume source")
 	}
+
+	readOnly := spec.ReadOnly
 
 	k8s := p.host.GetKubeClient()
 	if k8s == nil {
@@ -309,13 +352,17 @@ func (p *csiPlugin) NewMounter(
 
 	// persist volume info data for teardown
 	node := string(p.host.GetNodeName())
-	attachID := getAttachmentName(pvSource.VolumeHandle, pvSource.Driver, node)
+	attachID := getAttachmentName(volHandle, driver, node)
 	volData := map[string]string{
 		volDataKey.specVolID:    spec.Name(),
-		volDataKey.volHandle:    pvSource.VolumeHandle,
-		volDataKey.driverName:   pvSource.Driver,
+		volDataKey.volHandle:    volHandle,
+		volDataKey.driverName:   driver,
 		volDataKey.nodeName:     node,
 		volDataKey.attachmentID: attachID,
+	}
+
+	if p.inlineFeatureEnabled {
+		volData[volDataKey.sourceKind] = sourceKind
 	}
 
 	if err := saveVolumeData(dataDir, volDataFileName, volData); err != nil {
@@ -369,24 +416,44 @@ func (p *csiPlugin) ConstructVolumeSpec(volumeName, mountPath string) (*volume.S
 	}
 
 	klog.V(4).Info(log("plugin.ConstructVolumeSpec extracted [%#v]", volData))
+	var spec *volume.Spec
 
-	fsMode := api.PersistentVolumeFilesystem
-	pv := &api.PersistentVolume{
-		ObjectMeta: meta.ObjectMeta{
-			Name: volData[volDataKey.specVolID],
-		},
-		Spec: api.PersistentVolumeSpec{
-			PersistentVolumeSource: api.PersistentVolumeSource{
-				CSI: &api.CSIPersistentVolumeSource{
-					Driver:       volData[volDataKey.driverName],
-					VolumeHandle: volData[volDataKey.volHandle],
+	if p.inlineFeatureEnabled && volData[volDataKey.sourceKind] == volumeKind {
+		handle := volData[volDataKey.volHandle]
+		spec = &volume.Spec{
+			ReadOnly: false,
+			Volume: &api.Volume{
+				VolumeSource: api.VolumeSource{
+					CSI: &api.CSIVolumeSource{
+						Driver:       volData[volDataKey.driverName],
+						VolumeHandle: &handle,
+					},
 				},
 			},
-			VolumeMode: &fsMode,
-		},
+		}
+	} else {
+		fsMode := api.PersistentVolumeFilesystem
+		spec = &volume.Spec{
+			ReadOnly: false,
+			PersistentVolume: &api.PersistentVolume{
+				ObjectMeta: meta.ObjectMeta{
+					Name: volData[volDataKey.specVolID],
+				},
+				Spec: api.PersistentVolumeSpec{
+					PersistentVolumeSource: api.PersistentVolumeSource{
+						CSI: &api.CSIPersistentVolumeSource{
+							Driver:       volData[volDataKey.driverName],
+							VolumeHandle: volData[volDataKey.volHandle],
+						},
+					},
+					VolumeMode: &fsMode,
+				},
+			},
+		}
 	}
 
-	return volume.NewSpecFromPersistentVolume(pv, false), nil
+	return spec, nil
+
 }
 
 func (p *csiPlugin) SupportsMountOption() bool {
@@ -635,10 +702,9 @@ func (p *csiPlugin) getPublishContext(client clientset.Interface, handle, driver
 		return nil, err
 	}
 	if skip {
+		klog.V(4).Info(log("driver %s does not support attachment, skipping PublishVolumeInfo", driver))
 		return nil, nil
 	}
-
-	attachID := getAttachmentName(handle, driver, nodeName)
 
 	// search for attachment by VolumeAttachment.Spec.Source.PersistentVolumeName
 	attachment, err := client.StorageV1beta1().VolumeAttachments().Get(attachID, meta.GetOptions{})
