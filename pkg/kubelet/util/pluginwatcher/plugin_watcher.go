@@ -115,8 +115,14 @@ func (w *Watcher) Start() error {
 					defer w.wg.Done()
 
 					if event.Op&fsnotify.Create == fsnotify.Create {
-						err := w.handleCreateEvent(event)
-						if err != nil {
+						if info, err := os.Stat(event.Name); err != nil {
+							if info.Mode()&os.ModeSocket != 0 {
+								err := w.handleCreateEvent(event)
+								if err != nil {
+									klog.Errorf("error %v when handling create event: %s", err, event)
+								}
+							}
+						} else {
 							klog.Errorf("error %v when handling create event: %s", err, event)
 						}
 					} else if event.Op&fsnotify.Remove == fsnotify.Remove {
@@ -210,15 +216,6 @@ func (w *Watcher) traversePluginDir(dir string) error {
 			if err := w.fsWatcher.Add(path); err != nil {
 				return fmt.Errorf("failed to watch %s, err: %v", path, err)
 			}
-		case mode&os.ModeSocket != 0:
-			w.wg.Add(1)
-			go func() {
-				defer w.wg.Done()
-				w.fsWatcher.Events <- fsnotify.Event{
-					Name: path,
-					Op:   fsnotify.Create,
-				}
-			}()
 		default:
 			klog.V(5).Infof("Ignoring file %s with mode %v", path, mode)
 		}
