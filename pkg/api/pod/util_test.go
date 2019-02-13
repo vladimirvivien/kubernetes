@@ -107,15 +107,11 @@ func TestPodSecrets(t *testing.T) {
 							Name: "Spec.Volumes[*].VolumeSource.StorageOS.SecretRef"}}}}, {
 				VolumeSource: api.VolumeSource{
 					CSI: &api.CSIVolumeSource{
-						ControllerPublishSecretRef: &api.LocalObjectReference{
-							Name: "Spec.Volumes[*].VolumeSource.CSI.ControllerPublishSecretRef"}}}}, {
-				VolumeSource: api.VolumeSource{
-					CSI: &api.CSIVolumeSource{
-						ControllerPublishSecretRef: &api.LocalObjectReference{
+						NodeStageSecretRef: &api.LocalObjectReference{
 							Name: "Spec.Volumes[*].VolumeSource.CSI.NodeStageSecretRef"}}}}, {
 				VolumeSource: api.VolumeSource{
 					CSI: &api.CSIVolumeSource{
-						ControllerPublishSecretRef: &api.LocalObjectReference{
+						NodePublishSecretRef: &api.LocalObjectReference{
 							Name: "Spec.Volumes[*].VolumeSource.CSI.NodePublishSecretRef"}}}}},
 		},
 	}
@@ -550,17 +546,17 @@ func TestDropRuntimeClass(t *testing.T) {
 		{
 			description:            "pod Without RuntimeClassName",
 			hasPodRuntimeClassName: false,
-			pod:                    podWithoutRuntimeClass,
+			pod: podWithoutRuntimeClass,
 		},
 		{
 			description:            "pod With RuntimeClassName",
 			hasPodRuntimeClassName: true,
-			pod:                    podWithRuntimeClass,
+			pod: podWithRuntimeClass,
 		},
 		{
 			description:            "is nil",
 			hasPodRuntimeClassName: false,
-			pod:                    func() *api.Pod { return nil },
+			pod: func() *api.Pod { return nil },
 		},
 	}
 
@@ -965,22 +961,22 @@ func TestDropPodShareProcessNamespace(t *testing.T) {
 		{
 			description:              "has ShareProcessNamespace",
 			hasShareProcessNamespace: true,
-			pod:                      podWithShareProcessNamespace,
+			pod: podWithShareProcessNamespace,
 		},
 		{
 			description:              "does not have ShareProcessNamespace",
 			hasShareProcessNamespace: false,
-			pod:                      podWithoutShareProcessNamespace,
+			pod: podWithoutShareProcessNamespace,
 		},
 		{
 			description:              "does not have SecurityContext",
 			hasShareProcessNamespace: false,
-			pod:                      podWithoutSecurityContext,
+			pod: podWithoutSecurityContext,
 		},
 		{
 			description:              "is nil",
 			hasShareProcessNamespace: false,
-			pod:                      func() *api.Pod { return nil },
+			pod: func() *api.Pod { return nil },
 		},
 	}
 

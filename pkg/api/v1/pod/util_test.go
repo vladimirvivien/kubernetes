@@ -271,15 +271,11 @@ func TestPodSecrets(t *testing.T) {
 							Name: "Spec.Volumes[*].VolumeSource.StorageOS.SecretRef"}}}}, {
 				VolumeSource: v1.VolumeSource{
 					CSI: &v1.CSIVolumeSource{
-						ControllerPublishSecretRef: &v1.LocalObjectReference{
-							Name: "Spec.Volumes[*].VolumeSource.CSI.ControllerPublishSecretRef"}}}}, {
-				VolumeSource: v1.VolumeSource{
-					CSI: &v1.CSIVolumeSource{
-						ControllerPublishSecretRef: &v1.LocalObjectReference{
+						NodeStageSecretRef: &v1.LocalObjectReference{
 							Name: "Spec.Volumes[*].VolumeSource.CSI.NodeStageSecretRef"}}}}, {
 				VolumeSource: v1.VolumeSource{
 					CSI: &v1.CSIVolumeSource{
-						ControllerPublishSecretRef: &v1.LocalObjectReference{
+						NodePublishSecretRef: &v1.LocalObjectReference{
 							Name: "Spec.Volumes[*].VolumeSource.CSI.NodePublishSecretRef"}}}}},
 		},
 	}

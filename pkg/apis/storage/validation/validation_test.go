@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/apis/storage"
 	"k8s.io/kubernetes/pkg/features"
@@ -140,7 +141,7 @@ func TestValidateStorageClass(t *testing.T) {
 
 func TestVolumeAttachmentValidation(t *testing.T) {
 	// Enable alpha feature ExpandPersistentVolumes
-	err := utilfeature.DefaultFeatureGate.Set("CSIInlineVolume=true")
+	err := utilfeature.DefaultMutableFeatureGate.Set("CSIInlineVolume=true")
 	if err != nil {
 		t.Errorf("Failed to enable feature gate for CSIInlineVolumes: %v", err)
 		return
@@ -193,7 +194,6 @@ func TestVolumeAttachmentValidation(t *testing.T) {
 								Driver: "foo-driver",
 							},
 						},
-						Namespace: "valid-namespace",
 					},
 				},
 				NodeName: "mynode",
@@ -347,7 +347,7 @@ func TestVolumeAttachmentValidation(t *testing.T) {
 
 func TestAlphaInlineVolumeAttachmentValidation(t *testing.T) {
 	if !utilfeature.DefaultFeatureGate.Enabled(features.CSIInlineVolume) {
-		err := utilfeature.DefaultFeatureGate.Set("CSIInlineVolume=true")
+		err := utilfeature.DefaultMutableFeatureGate.Set("CSIInlineVolume=true")
 		if err != nil {
 			t.Errorf("feature-gate failed: CSIInlineVolume: %v", err)
 			return
@@ -356,7 +356,7 @@ func TestAlphaInlineVolumeAttachmentValidation(t *testing.T) {
 
 	defer func() {
 		if utilfeature.DefaultFeatureGate.Enabled(features.CSIInlineVolume) {
-			err := utilfeature.DefaultFeatureGate.Set("CSIInlineVolume=false")
+			err := utilfeature.DefaultMutableFeatureGate.Set("CSIInlineVolume=false")
 			if err != nil {
 				t.Errorf("feature-gate failed: CSIInlineVolume: %v", err)
 				return
@@ -377,7 +377,6 @@ func TestAlphaInlineVolumeAttachmentValidation(t *testing.T) {
 								Driver: "foo-driver",
 							},
 						},
-						Namespace: "valid-namespace",
 					},
 				},
 				NodeName: "mynode",
@@ -394,7 +393,6 @@ func TestAlphaInlineVolumeAttachmentValidation(t *testing.T) {
 								Driver: "foo-driver",
 							},
 						},
-						Namespace: "valid-namespace",
 					},
 				},
 				NodeName: "mynode",
