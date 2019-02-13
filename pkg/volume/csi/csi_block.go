@@ -244,7 +244,7 @@ func (m *csiBlockMapper) SetUpDevice() (string, error) {
 		accessMode = m.spec.PersistentVolume.Spec.AccessModes[0]
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), csiTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), csiDefaultTimeout)
 	defer cancel()
 
 	// Call NodeStageVolume
@@ -323,7 +323,7 @@ func (m *csiBlockMapper) TearDownDevice(globalMapPath, devicePath string) error 
 
 	klog.V(4).Infof(log("unmapper.TearDownDevice(globalMapPath=%s; devicePath=%s)", globalMapPath, devicePath))
 
-	ctx, cancel := context.WithTimeout(context.Background(), csiTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), csiDefaultTimeout)
 	defer cancel()
 
 	// Call NodeUnpublishVolume

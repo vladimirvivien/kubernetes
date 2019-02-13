@@ -48,10 +48,6 @@ import (
 const (
 	csiPluginName = "kubernetes.io/csi"
 
-	// TODO (vladimirvivien) implement a more dynamic way to discover
-	// the unix domain socket path for each installed csi driver.
-	// TODO (vladimirvivien) would be nice to name socket with a .sock extension
-	// for consistency.
 	csiAddrTemplate   = "/var/lib/kubelet/plugins/%v/csi.sock"
 	csiDefaultTimeout = 15 * time.Second
 	volNameSep        = "^"
@@ -147,7 +143,7 @@ func (h *RegistrationHandler) RegisterPlugin(pluginName string, endpoint string,
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), csiTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), csiDefaultTimeout)
 	defer cancel()
 
 	driverNodeID, maxVolumePerNode, accessibleTopology, err := csi.NodeGetInfo(ctx)
@@ -697,16 +693,8 @@ func (p *csiPlugin) skipAttach(driver string) (bool, error) {
 }
 
 func (p *csiPlugin) getPublishContext(client clientset.Interface, handle, driver, nodeName string) (map[string]string, error) {
-	skip, err := p.skipAttach(driver)
-	if err != nil {
-		return nil, err
-	}
-	if skip {
-		klog.V(4).Info(log("driver %s does not support attachment, skipping PublishVolumeInfo", driver))
-		return nil, nil
-	}
-
 	// search for attachment by VolumeAttachment.Spec.Source.PersistentVolumeName
+	attachID := getAttachmentName(handle, driver, nodeName)
 	attachment, err := client.StorageV1beta1().VolumeAttachments().Get(attachID, meta.GetOptions{})
 	if err != nil {
 		return nil, err // This err already has enough context ("VolumeAttachment xyz not found")

@@ -104,6 +104,10 @@ func loadVolumeData(dir string, fileName string) (map[string]string, error) {
 }
 
 func getSourceFromSpec(spec *volume.Spec) (*api.CSIVolumeSource, *api.CSIPersistentVolumeSource, error) {
+	if spec == nil {
+		return nil, nil, fmt.Errorf("volume.Spec missing volume spec")
+	}
+
 	if spec.Volume != nil &&
 		spec.Volume.CSI != nil {
 		return spec.Volume.CSI, nil, nil
@@ -113,7 +117,7 @@ func getSourceFromSpec(spec *volume.Spec) (*api.CSIVolumeSource, *api.CSIPersist
 		return nil, spec.PersistentVolume.Spec.CSI, nil
 	}
 
-	return nil, nil, fmt.Errorf("volume.Spec missing volume source")
+	return nil, nil, fmt.Errorf("volume.Spec missing volume source and persistent volume source")
 }
 
 func getCSISourceFromSpec(spec *volume.Spec) (*api.CSIPersistentVolumeSource, error) {
