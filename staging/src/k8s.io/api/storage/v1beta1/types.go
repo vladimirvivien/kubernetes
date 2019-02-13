@@ -178,11 +178,6 @@ type InlineVolumeSource struct {
 	// Only CSIVolumeSource can be set.
 	// Required.
 	VolumeSource v1.VolumeSource `json:"volumeSource" protobuf:"bytes,1,opt,name=volumeSource"`
-
-	// Namespace of the pod with in-line volume. It is used to resolve
-	// references to Secrets in VolumeSource.
-	// Required.
-	Namespace string `json:"namespace" protobuf:"bytes,2,opt,name=namespace"`
 }
 
 // VolumeAttachmentStatus is the status of a VolumeAttachment request.

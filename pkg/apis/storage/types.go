@@ -168,11 +168,6 @@ type InlineVolumeSource struct {
 	// Only CSIVolumeSource can be set.
 	// Required.
 	VolumeSource api.VolumeSource
-
-	// Namespace of the pod with in-line volume. It is used to resolve
-	// references to Secrets in VolumeSource.
-	// Required.
-	Namespace string
 }
 
 // The status of a VolumeAttachment request.

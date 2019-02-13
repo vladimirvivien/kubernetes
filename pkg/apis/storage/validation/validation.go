@@ -24,10 +24,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/apis/core/helper"
 	apivalidation "k8s.io/kubernetes/pkg/apis/core/validation"
 	"k8s.io/kubernetes/pkg/apis/storage"
+	"k8s.io/kubernetes/pkg/features"
 )
 
 const (
@@ -199,15 +201,6 @@ func validateVolumeAttachmentInlineVolumeSource(source *storage.InlineVolumeSour
 	if source.VolumeSource.CSI == nil { // for now, only supports CSI
 		allErrs = append(allErrs, field.Required(fldPath, "volumeSource.CSI"))
 	}
-
-	if len(source.Namespace) == 0 {
-		allErrs = append(allErrs, field.Required(fldPath, "namespace"))
-	} else {
-		for _, msg := range apivalidation.ValidateNamespaceName(source.Namespace, false) {
-			allErrs = append(allErrs, field.Invalid(fldPath.Child("namespace"), source.Namespace, msg))
-		}
-	}
-
 	return allErrs
 }
 
