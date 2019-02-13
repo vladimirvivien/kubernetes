@@ -121,9 +121,6 @@ func VisitPodSecretNames(pod *v1.Pod, visitor Visitor) bool {
 				return false
 			}
 		case source.CSI != nil:
-			if source.CSI.ControllerPublishSecretRef != nil && !visitor(source.CSI.ControllerPublishSecretRef.Name) {
-				return false
-			}
 			if source.CSI.NodeStageSecretRef != nil && !visitor(source.CSI.NodeStageSecretRef.Name) {
 				return false
 			}
