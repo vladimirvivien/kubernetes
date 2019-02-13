@@ -144,7 +144,6 @@ func TestPodSecrets(t *testing.T) {
 		"Spec.Volumes[*].VolumeSource.ScaleIO.SecretRef",
 		"Spec.Volumes[*].VolumeSource.ISCSI.SecretRef",
 		"Spec.Volumes[*].VolumeSource.StorageOS.SecretRef",
-		"Spec.Volumes[*].VolumeSource.CSI.ControllerPublishSecretRef",
 		"Spec.Volumes[*].VolumeSource.CSI.NodeStageSecretRef",
 		"Spec.Volumes[*].VolumeSource.CSI.NodePublishSecretRef",
 	)
