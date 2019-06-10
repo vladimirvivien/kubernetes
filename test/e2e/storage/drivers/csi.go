@@ -99,6 +99,19 @@ func InitHostPathCSIDriver() testsuites.TestDriver {
 	)
 }
 
+func InitHostPathCSIDriverForInline() testsuites.TestDriver {
+	return initHostPathCSIDriver("csi-hostpath",
+		map[testsuites.Capability]bool{
+			testsuites.CapPersistence: false,
+			testsuites.CapDataSource:  false,
+			testsuites.CapMultiPODs:   false,
+			testsuites.CapBlock:       false,
+		},
+		"test/e2e/testing-manifests/storage-csi/hostpath/hostpath/csi-hostpathplugin.yaml",
+		"test/e2e/testing-manifests/storage-csi/hostpath/hostpath/e2e-test-rbac.yaml",
+	)
+}
+
 func (h *hostpathCSIDriver) GetDriverInfo() *testsuites.DriverInfo {
 	return &h.driverInfo
 }
