@@ -18,12 +18,12 @@ package storage
 
 import (
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/onsi/ginkgo"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2elog "k8s.io/kubernetes/test/e2e/framework/log"
 	"k8s.io/kubernetes/test/e2e/storage/drivers"
@@ -32,7 +32,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/storage/utils"
 )
 
-var _ = utils.SIGDescribe("csi should create inline volume from pod spec", func() {
+var _ = utils.SIGDescribe("csi-inline-ephemeral", func() {
 	f := framework.NewDefaultFramework("csi-inline-ephemeral")
 	driver := drivers.InitHostPathCSIDriverForInline()
 
@@ -50,8 +50,8 @@ var _ = utils.SIGDescribe("csi should create inline volume from pod spec", func(
 		}
 	})
 
-	ginkgo.It("should use pod spec to create and eventually delete embedded inline csi volumes backed by csi-hostpath", func() {
-		client := config.Framework.ClientSet
+	ginkgo.It("Use pod spec to create and delete embedded inline csi volumes", func() {
+		client := f.ClientSet
 
 		volSrc := &v1.VolumeSource{
 			CSI: &v1.CSIVolumeSource{
@@ -70,7 +70,7 @@ var _ = utils.SIGDescribe("csi should create inline volume from pod spec", func(
 
 func testCSIInlineVolumePod(f *framework.Framework, source *v1.VolumeSource) *v1.Pod {
 	var (
-		podName    = fmt.Sprintf("pod-inline-%08x", rand.Intn(32))
+		podName    = fmt.Sprintf("pod-inline-%x", rand.Uint32())
 		volumeName = "test-vol-name"
 		volumePath = "/data"
 		image      = framework.BusyBoxImage
@@ -84,7 +84,7 @@ func testCSIInlineVolumePod(f *framework.Framework, source *v1.VolumeSource) *v1
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{
 				{
-					Name:  fmt.Sprintf("test-container-%s", podName),
+					Name:  fmt.Sprintf("container-%x", rand.Uint32()),
 					Image: image,
 					Command: []string{
 						"/bin/sh",
