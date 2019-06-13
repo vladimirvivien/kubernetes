@@ -107,7 +107,7 @@ func InitHostPathCSIDriverForInline() testsuites.TestDriver {
 			testsuites.CapMultiPODs:   false,
 			testsuites.CapBlock:       false,
 		},
-		"test/e2e/testing-manifests/storage-csi/hostpath/hostpath/csi-hostpathplugin.yaml",
+		"test/e2e/testing-manifests/storage-csi/hostpath/hostpath/csi-hostpathplugin-ephemeral.yaml",
 		"test/e2e/testing-manifests/storage-csi/hostpath/hostpath/e2e-test-rbac.yaml",
 	)
 }
